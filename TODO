@@ -1,4 +1,0 @@
-[ ] Migrate Prod DB to basically convert the existing bech32s to Hexes and then to Address
-[ ] Add Remote prover
-[ ] add websockets to on codebase
-[ ] Migrate to `t2.micro`

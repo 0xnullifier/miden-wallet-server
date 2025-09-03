@@ -1,26 +1,24 @@
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 
 use axum::{Json, Router, extract::Path, http::StatusCode, routing::get};
 use lazy_static::lazy_static;
 use miden_client::{
-    Client,
     account::{AccountId, Address},
     asset::FungibleAsset,
-    builder::ClientBuilder,
-    keystore::FilesystemKeyStore,
     note::NoteType,
-    rpc::{Endpoint, TonicRpcClient},
     transaction::TransactionRequestBuilder,
 };
-use rand::rngs::StdRng;
 use rusqlite::Connection;
 use serde::Serialize;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::tx_worker::{
-    self, Transaction, get_number_of_tx_for_address, get_transactions_by_account, get_tx_by_id,
-    get_txs_in_last_hour, get_txs_latest,
+use crate::{
+    tx_worker::{
+        self, Transaction, get_number_of_tx_for_address, get_transactions_by_account, get_tx_by_id,
+        get_txs_in_last_hour, get_txs_latest,
+    },
+    utils::{init_client_and_prover, validate_address},
 };
 
 lazy_static! {
@@ -31,69 +29,16 @@ lazy_static! {
 pub const STATS_FILE: &str = "./tx_stats.txt";
 const APP_DB: &str = "./app_db.sqlite3";
 
-async fn faucet_id() -> Json<String> {
-    // Move the blocking client operations to a separate thread pool
-    let result = tokio::task::spawn_blocking(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let endpoint = Endpoint::testnet();
-            let timeout_ms = 10_000;
-            let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
-            let mut client: Client<FilesystemKeyStore<StdRng>> = ClientBuilder::new()
-                .rpc(rpc_api)
-                .filesystem_keystore("./keystore")
-                .in_debug_mode(true.into())
-                .sqlite_store("./new.sqlite3")
-                .build()
-                .await
-                .expect("Failed to build client");
-
-            client.sync_state().await.expect("Failed to sync state");
-            let accounts = client
-                .get_account_headers()
-                .await
-                .expect("Failed to get account headers");
-
-            for (account_header, _) in &accounts {
-                let account_full = client
-                    .get_account(account_header.id())
-                    .await
-                    .expect("Cannot get account")
-                    .unwrap();
-                if account_full.account().account_type().is_faucet() {
-                    return account_header.id().to_hex();
-                }
-            }
-            "No faucet account found".to_string()
-        })
-    })
-    .await;
-
-    match result {
-        Ok(faucet_id) => Json(faucet_id),
-        Err(e) => Json(format!("Error: {}", e)),
-    }
-}
-
-async fn mint(Path((address, amount)): Path<(String, u64)>) -> Json<String> {
+async fn mint(Path((address, amount)): Path<(String, u64)>) -> Result<Json<String>, StatusCode> {
     println!("request for minting {} to {}", amount, address);
+    validate_address(&address)
+        .then(|| ())
+        .ok_or(StatusCode::BAD_REQUEST)?;
     // Move the blocking client operations to a separate thread pool
     let result = tokio::task::spawn_blocking(move || {
         tokio::runtime::Handle::current().block_on(async {
-            let endpoint = Endpoint::testnet();
-            let timeout_ms = 10_000;
-            let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
+            let (mut client, remote_prover) = init_client_and_prover().await;
             let conn = Connection::open(APP_DB).expect("FAILED TO OPEN DB");
-
-            let mut client: Client<FilesystemKeyStore<StdRng>> = ClientBuilder::new()
-                .rpc(rpc_api)
-                .filesystem_keystore("./keystore")
-                .in_debug_mode(true.into())
-                .sqlite_store("./new.sqlite3")
-                .build()
-                .await
-                .expect("Failed to build client");
-
-            client.sync_state().await.expect("Failed to sync state");
 
             let account = client
                 .get_account(*FAUCET_ID)
@@ -127,7 +72,7 @@ async fn mint(Path((address, amount)): Path<(String, u64)>) -> Json<String> {
                     .expect("Failed to execute transaction");
                 let digest = transaction_execution_result.executed_transaction().id();
                 client
-                    .submit_transaction(transaction_execution_result)
+                    .submit_transaction_with_prover(transaction_execution_result, remote_prover)
                     .await
                     .expect("Failed to submit transaction");
 
@@ -144,15 +89,17 @@ async fn mint(Path((address, amount)): Path<(String, u64)>) -> Json<String> {
     })
     .await;
 
-    match result {
-        Ok(digest) => digest,
-        Err(e) => Json(format!("Error: {}", e)),
-    }
+    result.map_err(|err| {
+        println!("{:?}", err);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
 }
 
 async fn add_address_if_not_there(Path(address): Path<String>) -> Result<(), StatusCode> {
     // validate if address is actully a address
-    Address::from_bech32(&address).map_err(|_| StatusCode::BAD_REQUEST)?;
+    validate_address(&address)
+        .then(|| ())
+        .ok_or(StatusCode::BAD_REQUEST)?;
     println!("request for adding account {}", address);
     let conn = Connection::open(APP_DB).expect("FAILED TO OPEN DB");
     let res = conn
@@ -358,7 +305,6 @@ pub async fn start_server() -> Result<(), Box<dyn Error>> {
     }
 
     let app = Router::new()
-        .route("/faucet", get(faucet_id))
         .route("/mint/{address}/{amount}", get(mint))
         .route("/add/{address}", get(add_address_if_not_there))
         .route("/transaction/{tx_id}", get(get_transaciton_by_id))

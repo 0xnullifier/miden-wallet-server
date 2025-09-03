@@ -1,7 +1,17 @@
+use std::sync::Arc;
+
 use bech32::{Bech32m, primitives::decode::CheckedHrpstring};
-use miden_client::account::{AccountId, AddressType};
+use miden_client::{
+    Client, RemoteTransactionProver,
+    account::{AccountId, Address, AddressType},
+    builder::ClientBuilder,
+    keystore::FilesystemKeyStore,
+    rpc::{Endpoint, TonicRpcClient},
+};
+use rand::rngs::StdRng;
 
 const SERIALIZED_SIZE: usize = 15;
+const TX_PROVER_ENDPOINT: &'static str = "https://tx-prover.testnet.miden.io";
 
 /// Copy from earlier version of Miden Base
 pub fn legacy_accountid_to_bech32(bech32_string: &str) -> Result<AccountId, String> {
@@ -40,4 +50,36 @@ pub fn legacy_accountid_to_bech32(bech32_string: &str) -> Result<AccountId, Stri
         .map_err(|source| format!("Failed to create AccountId from bytes: {source}"))?;
 
     Ok(account_id)
+}
+
+pub fn validate_address(bech32_string: &str) -> bool {
+    match Address::from_bech32(bech32_string) {
+        Ok((_, Address::AccountId(_))) => true,
+        Ok((_, _)) => true,
+        Err(_) => {
+            // Try legacy format
+            legacy_accountid_to_bech32(bech32_string).is_ok()
+        }
+    }
+}
+
+pub async fn init_client_and_prover() -> (
+    Client<FilesystemKeyStore<StdRng>>,
+    Arc<RemoteTransactionProver>,
+) {
+    let endpoint = Endpoint::testnet();
+    let timeout_ms = 10_000;
+    let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
+    let mut client: Client<FilesystemKeyStore<StdRng>> = ClientBuilder::new()
+        .rpc(rpc_api)
+        .filesystem_keystore("./keystore")
+        .in_debug_mode(true.into())
+        .sqlite_store("./new.sqlite3")
+        .build()
+        .await
+        .expect("Failed to build client");
+    client.sync_state().await.expect("Failed to sync state");
+    let remote_prover = Arc::new(RemoteTransactionProver::new(TX_PROVER_ENDPOINT.to_string()));
+
+    (client, remote_prover)
 }
