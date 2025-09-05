@@ -6,6 +6,15 @@ BIN=target/release/miden-faucet-server
 BIN_MINT_SERVER=target/release/mint-server
 
 
+install_deps_ec2:
+	sudo yum update -y
+	sudo yum install -y gcc gcc-c++ nodejs
+	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+	curl -fsSL https://get.pnpm.io/install.sh | sh -
+	. ~/.bashrc
+	pnpm env use --global 18
+
+
 build_rust:
 	$(CG) build --release
 
