@@ -1,14 +1,8 @@
 use std::error::Error;
 
 use axum::{Json, Router, extract::Path, http::StatusCode, routing::get};
-use futures::executor::block_on;
 use lazy_static::lazy_static;
-use miden_client::{
-    account::{AccountId, Address},
-    asset::FungibleAsset,
-    note::NoteType,
-    transaction::TransactionRequestBuilder,
-};
+use miden_client::account::{AccountId, Address};
 use rusqlite::Connection;
 use serde::Serialize;
 use tower::ServiceBuilder;
@@ -19,7 +13,7 @@ use crate::{
         self, Transaction, get_number_of_tx_for_address, get_transactions_by_account, get_tx_by_id,
         get_txs_in_last_hour, get_txs_latest,
     },
-    utils::{init_client_and_prover, validate_address},
+    utils::validate_address,
 };
 
 lazy_static! {
@@ -29,52 +23,6 @@ lazy_static! {
 
 pub const STATS_FILE: &str = "./tx_stats.txt";
 pub const APP_DB: &str = "./app_db.sqlite3";
-
-async fn mint(Path((address, amount)): Path<(String, u64)>) -> Result<Json<String>, StatusCode> {
-    println!("request for minting {} to {}", amount, address);
-    validate_address(&address)
-        .then(|| ())
-        .ok_or(StatusCode::BAD_REQUEST)?;
-    // Move the blocking client operations to a separate thread pool
-    let res = block_on(async {
-        let (mut client, remote_prover) = init_client_and_prover().await;
-        let conn = Connection::open(APP_DB).expect("FAILED TO OPEN DB");
-
-        let fungible_asset = FungibleAsset::new(*FAUCET_ID, amount).unwrap();
-        let (_, target_address) = Address::from_bech32(&address).expect("Invalid address format");
-        let target_id = match target_address {
-            Address::AccountId(id) => id.id(),
-            _ => {
-                panic!("Target address is not an AccountId")
-            }
-        };
-        let transaction_request = TransactionRequestBuilder::new()
-            .build_mint_fungible_asset(fungible_asset, target_id, NoteType::Public, client.rng())
-            .expect("Failed to build transaction request");
-        let transaction_execution_result = client
-            .new_transaction(*FAUCET_ID, transaction_request)
-            .await
-            .expect("Failed to execute transaction");
-        let digest = transaction_execution_result.executed_transaction().id();
-        client
-            .submit_transaction_with_prover(transaction_execution_result, remote_prover)
-            .await
-            .expect("Failed to submit transaction");
-
-        conn.execute(
-            "INSERT OR IGNORE INTO ACCOUNTS (wallet_address) VALUES (?1)",
-            (&address,),
-        )
-        .expect("Failed to build transaction");
-
-        return Json(digest.to_hex());
-    });
-    Ok(res)
-    // result.map_err(|err| {
-    //     println!("{:?}", err);
-    //     StatusCode::INTERNAL_SERVER_ERROR
-    // })
-}
 
 async fn add_address_if_not_there(Path(address): Path<String>) -> Result<(), StatusCode> {
     // validate if address is actully a address
@@ -286,7 +234,6 @@ pub async fn start_server() -> Result<(), Box<dyn Error>> {
     }
 
     let app = Router::new()
-        .route("/mint/{address}/{amount}", get(mint))
         .route("/add/{address}", get(add_address_if_not_there))
         .route("/transaction/{tx_id}", get(get_transaciton_by_id))
         .route("/stats", get(get_stats))
@@ -302,9 +249,9 @@ pub async fn start_server() -> Result<(), Box<dyn Error>> {
         )
         .layer(ServiceBuilder::new().layer(cors_layer));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await.unwrap();
 
-    println!("Server starting on 0.0.0.0:8080");
+    println!("Server starting on 0.0.0.0:8000");
     println!("CORS origins: {}", cors_origins);
     tokio::spawn(tx_worker::start_worker());
     axum::serve(listener, app).await?;

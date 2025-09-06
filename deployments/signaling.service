@@ -1,0 +1,13 @@
+[Unit]
+Description=Signaling server Server
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/make start
+Restart=on-failure
+RestartSec=5
+User=<user>
+WorkingDirectory=<work-dir>
+
+[Install]
+WantedBy=multi-user.target
