@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use axum::{Json, Router, extract::Path, http::StatusCode, routing::get};
+use futures::executor::block_on;
 use lazy_static::lazy_static;
 use miden_client::{
     account::{AccountId, Address},
@@ -23,7 +24,7 @@ use crate::{
 
 lazy_static! {
     pub static ref FAUCET_ID: AccountId =
-        AccountId::from_hex("0x5dc6b6ad6612e82065d874b67ae0c6").unwrap();
+        AccountId::from_hex("0xae031d7895eabd204f8502ff958323").unwrap();
 }
 
 pub const STATS_FILE: &str = "./tx_stats.txt";
@@ -35,64 +36,44 @@ async fn mint(Path((address, amount)): Path<(String, u64)>) -> Result<Json<Strin
         .then(|| ())
         .ok_or(StatusCode::BAD_REQUEST)?;
     // Move the blocking client operations to a separate thread pool
-    let result = tokio::task::spawn_blocking(move || {
-        tokio::runtime::Handle::current().block_on(async {
-            let (mut client, remote_prover) = init_client_and_prover().await;
-            let conn = Connection::open(APP_DB).expect("FAILED TO OPEN DB");
+    let res = block_on(async {
+        let (mut client, remote_prover) = init_client_and_prover().await;
+        let conn = Connection::open(APP_DB).expect("FAILED TO OPEN DB");
 
-            let account = client
-                .get_account(*FAUCET_ID)
-                .await
-                .expect("Cannot get account")
-                .unwrap();
-
-            let account_full = account.account();
-
-            if account_full.account_type().is_faucet() {
-                let fungible_asset = FungibleAsset::new(account.account().id(), amount).unwrap();
-                let (_, target_address) =
-                    Address::from_bech32(&address).expect("Invalid address format");
-                let target_id = match target_address {
-                    Address::AccountId(id) => id.id(),
-                    _ => {
-                        panic!("Target address is not an AccountId")
-                    }
-                };
-                let transaction_request = TransactionRequestBuilder::new()
-                    .build_mint_fungible_asset(
-                        fungible_asset,
-                        target_id,
-                        NoteType::Public,
-                        client.rng(),
-                    )
-                    .expect("Failed to build transaction request");
-                let transaction_execution_result = client
-                    .new_transaction(account.account().id(), transaction_request)
-                    .await
-                    .expect("Failed to execute transaction");
-                let digest = transaction_execution_result.executed_transaction().id();
-                client
-                    .submit_transaction_with_prover(transaction_execution_result, remote_prover)
-                    .await
-                    .expect("Failed to submit transaction");
-
-                conn.execute(
-                    "INSERT OR IGNORE INTO ACCOUNTS (wallet_address) VALUES (?1)",
-                    (&address,),
-                )
-                .expect("Failed to build transaction");
-
-                return Json(digest.to_hex());
+        let fungible_asset = FungibleAsset::new(*FAUCET_ID, amount).unwrap();
+        let (_, target_address) = Address::from_bech32(&address).expect("Invalid address format");
+        let target_id = match target_address {
+            Address::AccountId(id) => id.id(),
+            _ => {
+                panic!("Target address is not an AccountId")
             }
-            Json("No faucet account found".to_string())
-        })
-    })
-    .await;
+        };
+        let transaction_request = TransactionRequestBuilder::new()
+            .build_mint_fungible_asset(fungible_asset, target_id, NoteType::Public, client.rng())
+            .expect("Failed to build transaction request");
+        let transaction_execution_result = client
+            .new_transaction(*FAUCET_ID, transaction_request)
+            .await
+            .expect("Failed to execute transaction");
+        let digest = transaction_execution_result.executed_transaction().id();
+        client
+            .submit_transaction_with_prover(transaction_execution_result, remote_prover)
+            .await
+            .expect("Failed to submit transaction");
 
-    result.map_err(|err| {
-        println!("{:?}", err);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })
+        conn.execute(
+            "INSERT OR IGNORE INTO ACCOUNTS (wallet_address) VALUES (?1)",
+            (&address,),
+        )
+        .expect("Failed to build transaction");
+
+        return Json(digest.to_hex());
+    });
+    Ok(res)
+    // result.map_err(|err| {
+    //     println!("{:?}", err);
+    //     StatusCode::INTERNAL_SERVER_ERROR
+    // })
 }
 
 async fn add_address_if_not_there(Path(address): Path<String>) -> Result<(), StatusCode> {

@@ -11,7 +11,7 @@ use miden_client::{
 use rand::rngs::StdRng;
 
 const SERIALIZED_SIZE: usize = 15;
-const TX_PROVER_ENDPOINT: &'static str = "https://tx-prover.testnet.miden.io";
+const TX_PROVER_ENDPOINT: &'static str = "https://tx-prover.devnet.miden.io";
 
 /// Copy from earlier version of Miden Base
 pub fn legacy_accountid_to_bech32(bech32_string: &str) -> Result<AccountId, String> {
@@ -67,7 +67,8 @@ pub async fn init_client_and_prover() -> (
     Client<FilesystemKeyStore<StdRng>>,
     Arc<RemoteTransactionProver>,
 ) {
-    let endpoint = Endpoint::testnet();
+    println!("Initializing client and prover...");
+    let endpoint = Endpoint::devnet();
     let timeout_ms = 10_000;
     let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
     let mut client: Client<FilesystemKeyStore<StdRng>> = ClientBuilder::new()
@@ -78,8 +79,10 @@ pub async fn init_client_and_prover() -> (
         .build()
         .await
         .expect("Failed to build client");
+    println!("Client built, syncing state...");
     client.sync_state().await.expect("Failed to sync state");
+    println!("State synced.");
     let remote_prover = Arc::new(RemoteTransactionProver::new(TX_PROVER_ENDPOINT.to_string()));
-
+    println!("Remote prover initialized.");
     (client, remote_prover)
 }
