@@ -14,6 +14,15 @@ install_deps_ec2:
 	. ~/.bashrc
 	pnpm env use --global 18
 
+copy_services:
+	sudo cp deployments/signaling.service /etc/systemd/system/signaling.service
+	sudo cp deployments/server.service /etc/systemd/system/server.service
+	sudo cp deployments/mint-server.service /etc/systemd/system/mint-server.service
+	sudo systemctl daemon-reload
+	sudo systemctl enable signaling
+	sudo systemctl enable server
+	sudo systemctl enable mint-server
+
 
 build_rust:
 	$(CG) build --release

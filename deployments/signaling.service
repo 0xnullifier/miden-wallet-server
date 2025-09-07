@@ -3,7 +3,7 @@ Description=Signaling server Server
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/make start
+ExecStart=/usr/bin/make start_signaling_server
 Restart=on-failure
 RestartSec=5
 User=<user>
