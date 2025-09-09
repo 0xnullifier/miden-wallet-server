@@ -18,7 +18,7 @@ use crate::{
 
 lazy_static! {
     pub static ref FAUCET_ID: AccountId =
-        AccountId::from_hex("0xae031d7895eabd204f8502ff958323").unwrap();
+        AccountId::from_hex("0x2b409be7647ca720164e5176a54363").unwrap();
 }
 
 pub const STATS_FILE: &str = "./tx_stats.txt";

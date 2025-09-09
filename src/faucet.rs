@@ -23,7 +23,7 @@ pub async fn create_new_faucet(endpoint: Endpoint) -> Result<(), Box<dyn std::er
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
         .in_debug_mode(true.into())
-        .sqlite_store("./new.sqlite3")
+        .sqlite_store("./devnet.sqlite3")
         .build()
         .await?;
     let keystore = FilesystemKeyStore::new("./keystore".into())?;

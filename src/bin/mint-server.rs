@@ -1,7 +1,6 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use futures::executor::block_on;
 use miden_client::account::Address;
 use miden_client::asset::FungibleAsset;
 use miden_client::note::NoteType;
@@ -9,6 +8,7 @@ use miden_client::transaction::TransactionRequestBuilder;
 use miden_faucet_server::server::{APP_DB, FAUCET_ID};
 use miden_faucet_server::utils::init_client_and_prover;
 use rusqlite::Connection;
+use tokio::runtime::Builder;
 
 fn handle_client(mut stream: TcpStream) {
     let mut buffer = [0; 1024];
@@ -20,6 +20,10 @@ fn handle_client(mut stream: TcpStream) {
             let request = String::from_utf8_lossy(&buffer);
             println!("Received request:\n{}", request);
             let request_path = request.lines().next().unwrap_or("");
+            let rt = Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to build Tokio runtime");
 
             if request.starts_with("GET /mint/") {
                 let params = request_path.split(" ").nth(1).unwrap_or("");
@@ -37,19 +41,20 @@ fn handle_client(mut stream: TcpStream) {
                         }
                     };
                     println!("Minting {} tokens to address {}", amount, address);
-                    let res = block_on(async {
+                    let res = rt.block_on(async {
                         let (mut client, remote_prover) = init_client_and_prover().await;
-                        let conn = Connection::open(APP_DB).expect("FAILED TO OPEN DB");
+
+                        let conn = Connection::open(APP_DB).expect("Failed to get DB connection");
 
                         let fungible_asset = FungibleAsset::new(*FAUCET_ID, amount).unwrap();
                         let (_, target_address) =
                             Address::from_bech32(&address).expect("Invalid address format");
+
                         let target_id = match target_address {
                             Address::AccountId(id) => id.id(),
-                            _ => {
-                                panic!("Target address is not an AccountId")
-                            }
+                            _ => panic!("Target address is not an AccountId"),
                         };
+
                         let transaction_request = TransactionRequestBuilder::new()
                             .build_mint_fungible_asset(
                                 fungible_asset,
@@ -58,11 +63,14 @@ fn handle_client(mut stream: TcpStream) {
                                 client.rng(),
                             )
                             .expect("Failed to build transaction request");
+
                         let transaction_execution_result = client
                             .new_transaction(*FAUCET_ID, transaction_request)
                             .await
                             .expect("Failed to execute transaction");
+
                         let digest = transaction_execution_result.executed_transaction().id();
+
                         client
                             .submit_transaction_with_prover(
                                 transaction_execution_result,
@@ -75,9 +83,9 @@ fn handle_client(mut stream: TcpStream) {
                             "INSERT OR IGNORE INTO ACCOUNTS (wallet_address) VALUES (?1)",
                             (&address,),
                         )
-                        .expect("Failed to build transaction");
+                        .expect("Failed to insert wallet address");
 
-                        return digest.to_hex();
+                        digest.to_hex()
                     });
                     let response = format!(
                         "HTTP/1.1 200 OK\r\n\
@@ -109,8 +117,7 @@ Access-Control-Allow-Headers: Content-Type\r\n\
 }
 
 /// NEED TO ADD THIS TO CREATE CONTEXT FOR THE ASYNC RUNTIME IN THE CLIENT
-#[tokio::main]
-pub async fn main() -> std::io::Result<()> {
+pub fn main() -> std::io::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:9090")?;
     println!("Server running on http://127.0.0.1:9090");
 
