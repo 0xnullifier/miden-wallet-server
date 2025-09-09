@@ -1,36 +1,24 @@
-use std::{env, sync::Arc, time::Duration};
+use std::env;
 
 use futures::executor::block_on;
 use miden_client::{
-    Client, Felt,
-    account::{
-        AccountBuilder, AccountId, AccountIdAddress, AccountStorageMode, AccountType, Address,
-        AddressInterface, NetworkId,
-        component::{AuthRpoFalcon512, BasicFungibleFaucet, BasicWallet},
-    },
-    asset::{FungibleAsset, TokenSymbol},
-    auth::AuthSecretKey,
-    builder::ClientBuilder,
-    crypto::SecretKey,
-    keystore::FilesystemKeyStore,
-    note::NoteType,
-    rpc::{Endpoint, TonicRpcClient},
+    account::Address, asset::FungibleAsset, note::NoteType, rpc::Endpoint,
     transaction::TransactionRequestBuilder,
 };
-use rand::{RngCore, rngs::StdRng};
 
-use crate::{server::FAUCET_ID, utils::init_client_and_prover};
-
-pub mod faucet;
-pub mod server;
-pub mod tx_worker;
-pub mod utils;
+use miden_faucet_server::{
+    faucet,
+    server::{self, FAUCET_ID},
+    utils::init_client_and_prover,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let command = env::args().nth(1).unwrap_or_default();
     match command.as_str() {
-        "start-server" => crate::server::start_server().await?,
+        "start-server" => {
+            server::start_server().await?;
+        }
         "create-faucet" => {
             let network = env::args().nth(2).unwrap_or_else(|| "testnet".to_string());
             let endpoint = match network.as_str() {
@@ -42,14 +30,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return Ok(());
                 }
             };
-            crate::faucet::create_new_faucet(endpoint).await?
+            faucet::create_new_faucet(endpoint).await?
         }
-        "test-tokio-mint" => block_on(async {
+        "test-mint" => block_on(async {
             let (mut client, remote_prover) = init_client_and_prover().await;
 
             let fungible_asset = FungibleAsset::new(*FAUCET_ID, 10000000).unwrap();
             let (_, target_address) =
-                Address::from_bech32("mdev1qr7zutlf2pnaayqjeajyuud7w3cqzrhqjwx")
+                Address::from_bech32("mdev1qzv5e0xp6n28rypelxdgqfz8secqzks5f77")
                     .expect("Invalid address format");
             let target_id = match target_address {
                 Address::AccountId(id) => id.id(),

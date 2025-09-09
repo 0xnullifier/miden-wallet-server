@@ -28,7 +28,7 @@ lazy_static! {
 }
 
 pub const STATS_FILE: &str = "./tx_stats.txt";
-const APP_DB: &str = "./app_db.sqlite3";
+pub const APP_DB: &str = "./app_db.sqlite3";
 
 async fn mint(Path((address, amount)): Path<(String, u64)>) -> Result<Json<String>, StatusCode> {
     println!("request for minting {} to {}", amount, address);
