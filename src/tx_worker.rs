@@ -278,7 +278,7 @@ pub fn get_accounts_to_be_tracked(conn: &Connection) -> Vec<AccountId> {
 
 pub async fn start_worker() {
     let conn = Connection::open("./app_db.sqlite3").expect("Cannot open db");
-    let endpoint = Endpoint::devnet();
+    let endpoint = Endpoint::testnet();
     let rpc = TonicRpcClient::new(&endpoint, 100_000);
 
     let mut last_sync_block = std::fs::read_to_string(SYNC_BLOCK_FILE)
