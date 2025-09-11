@@ -67,6 +67,7 @@ pub async fn init_client_and_prover() -> (
     Client<FilesystemKeyStore<StdRng>>,
     Arc<RemoteTransactionProver>,
 ) {
+    println!("Initializing client and prover...");
     let endpoint = Endpoint::testnet();
     let timeout_ms = 10_000;
     let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
@@ -74,12 +75,14 @@ pub async fn init_client_and_prover() -> (
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
         .in_debug_mode(true.into())
-        .sqlite_store("./new.sqlite3")
+        .sqlite_store("./testnet.sqlite3")
         .build()
         .await
         .expect("Failed to build client");
+    println!("Client built, syncing state...");
     client.sync_state().await.expect("Failed to sync state");
+    println!("State synced.");
     let remote_prover = Arc::new(RemoteTransactionProver::new(TX_PROVER_ENDPOINT.to_string()));
-
+    println!("Remote prover initialized.");
     (client, remote_prover)
 }

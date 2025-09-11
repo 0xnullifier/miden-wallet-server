@@ -1,0 +1,13 @@
+[Unit]
+Description=Server
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/make start_server
+Restart=on-failure
+RestartSec=5
+User=<user>
+WorkingDirectory=<work-dir>
+
+[Install]
+WantedBy=multi-user.target

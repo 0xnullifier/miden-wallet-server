@@ -12,6 +12,7 @@ use crate::{
     utils::legacy_accountid_to_bech32,
 };
 
+const SYNC_BLOCK_FILE: &str = "./last_sync_block.txt";
 /// Creates a worker that polls raw blocks from the rpc and see if there are changes
 /// made for the rpc
 
@@ -274,7 +275,7 @@ pub fn get_accounts_to_be_tracked(conn: &Connection) -> Vec<AccountId> {
     accounts_to_be_tracked.push(*FAUCET_ID);
     accounts_to_be_tracked
 }
-const SYNC_BLOCK_FILE: &str = "./last_sync_block.txt";
+
 pub async fn start_worker() {
     let conn = Connection::open("./app_db.sqlite3").expect("Cannot open db");
     let endpoint = Endpoint::testnet();
@@ -283,7 +284,7 @@ pub async fn start_worker() {
     let mut last_sync_block = std::fs::read_to_string(SYNC_BLOCK_FILE)
         .ok()
         .and_then(|s| s.trim().parse::<u32>().ok())
-        .unwrap_or(359610);
+        .unwrap_or(1);
 
     println!("worker started");
     loop {

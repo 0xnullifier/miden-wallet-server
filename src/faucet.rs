@@ -23,7 +23,7 @@ pub async fn create_new_faucet(endpoint: Endpoint) -> Result<(), Box<dyn std::er
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
         .in_debug_mode(true.into())
-        .sqlite_store("./new.sqlite3")
+        .sqlite_store("./testnet.sqlite3")
         .build()
         .await?;
     let keystore = FilesystemKeyStore::new("./keystore".into())?;
@@ -33,7 +33,7 @@ pub async fn create_new_faucet(endpoint: Endpoint) -> Result<(), Box<dyn std::er
     // Faucet parameters
     let symbol = TokenSymbol::new("MID").unwrap();
     let decimals = 8;
-    let max_supply = Felt::new(1_000_000);
+    let max_supply = Felt::new(1_000_000_000_000_000_000u64); // 100 million MID with 8 decimals
 
     // Generate key pair
     let key_pair = SecretKey::with_rng(client.rng());
