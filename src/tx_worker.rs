@@ -92,14 +92,15 @@ pub fn get_tx_by_id(conn: &Connection, tx_id: String) -> Result<Transaction, Str
             Ok(Transaction::from_sql_row(row))
         })
         .map_err(|err| format!("Transaction Not Found {}", err.to_string()))?;
-    let res = rows
-        .next()
-        .unwrap()
-        .map_err(|err| format!("error {}", err))?;
+
+    let res = match rows.next() {
+        Some(res) => res.map_err(|err| err.to_string()),
+        None => Err("No transaction foundd".to_string()),
+    };
     if rows.count() > 0 {
         return Err(format!("Failed"));
     };
-    Ok(res)
+    res
 }
 
 pub fn get_txs_in_last_hour(conn: &Connection) -> Result<u32, String> {
@@ -290,18 +291,19 @@ pub async fn start_worker() {
     loop {
         let accounts_to_be_tracked = get_accounts_to_be_tracked(&conn);
         let empty_btree_set = BTreeSet::new();
-        let sync_result = rpc
-            .sync_state(
-                last_sync_block.into(),
-                &accounts_to_be_tracked,
-                &empty_btree_set,
-            )
-            .await
-            .expect("Sync failed");
-        last_sync_block = sync_result.chain_tip.as_u32();
-        std::fs::write(SYNC_BLOCK_FILE, last_sync_block.to_string())
-            .expect("Failed to write last_sync_block");
-        update_db(&conn, &sync_result);
+        // API allows at max 1000 accounts
+        let mut chunked_accounts = accounts_to_be_tracked.chunks(1000);
+
+        while let Some(accounts) = chunked_accounts.next() {
+            let sync_result = rpc
+                .sync_state(last_sync_block.into(), accounts, &empty_btree_set)
+                .await
+                .expect("Sync failed");
+            last_sync_block = sync_result.chain_tip.as_u32();
+            std::fs::write(SYNC_BLOCK_FILE, last_sync_block.to_string())
+                .expect("Failed to write last_sync_block");
+            update_db(&conn, &sync_result);
+        }
         // a 1 second sleep to not get rate limited
         tokio::time::sleep(Duration::from_secs(3)).await;
     }

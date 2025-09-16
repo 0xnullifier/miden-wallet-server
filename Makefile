@@ -1,7 +1,7 @@
 CG=cargo
 ND=node
-PM=pnpm
 SIGNALING_SERVER_DIR=signaling-server
+PM=/root/.local/share/pnpm/pnpm
 BIN=target/release/miden-faucet-server
 BIN_MINT_SERVER=target/release/mint-server
 

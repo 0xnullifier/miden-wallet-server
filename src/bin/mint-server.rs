@@ -1,14 +1,21 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use miden_client::account::Address;
+use miden_client::account::{AccountId, Address};
 use miden_client::asset::FungibleAsset;
 use miden_client::note::NoteType;
 use miden_client::transaction::TransactionRequestBuilder;
-use miden_faucet_server::server::{APP_DB, FAUCET_ID};
+use miden_faucet_server::server::APP_DB;
 use miden_faucet_server::utils::init_client_and_prover;
 use rusqlite::Connection;
 use tokio::runtime::Builder;
+
+use lazy_static::lazy_static;
+
+lazy_static! {
+    pub static ref FAUCET_ID: AccountId =
+        AccountId::from_hex(&std::env::var("FAUCET_ID").unwrap()).unwrap();
+}
 
 fn handle_client(mut stream: TcpStream) {
     let mut buffer = [0; 1024];
@@ -18,7 +25,6 @@ fn handle_client(mut stream: TcpStream) {
         Ok(_) => {
             // Print the request
             let request = String::from_utf8_lossy(&buffer);
-            println!("Received request:\n{}", request);
             let request_path = request.lines().next().unwrap_or("");
             let rt = Builder::new_current_thread()
                 .enable_all()
@@ -118,6 +124,8 @@ Access-Control-Allow-Headers: Content-Type\r\n\
 
 /// NEED TO ADD THIS TO CREATE CONTEXT FOR THE ASYNC RUNTIME IN THE CLIENT
 pub fn main() -> std::io::Result<()> {
+    dotenvy::dotenv().ok();
+
     let listener = TcpListener::bind("127.0.0.1:9090")?;
     println!("Server running on http://127.0.0.1:9090");
 
