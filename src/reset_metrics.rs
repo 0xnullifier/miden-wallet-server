@@ -8,8 +8,8 @@ use miden_objects::block::ProvenBlock;
 use rusqlite::Connection;
 
 use crate::{
-    server::{APP_DB, FAUCET_ID, STATS_FILE},
-    tx_worker::{NoteData, SYNC_BLOCK_FILE, Transaction},
+    server::{APP_DB, FAUCET_ID},
+    tx_worker::{NoteData, Transaction},
     utils::legacy_accountid_to_bech32,
 };
 

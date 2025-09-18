@@ -21,7 +21,6 @@ lazy_static! {
         AccountId::from_hex(&std::env::var("FAUCET_ID").unwrap()).unwrap();
 }
 
-pub const STATS_FILE: &str = "./tx_stats.txt";
 pub const APP_DB: &str = "./app_db.sqlite3";
 
 async fn add_address_if_not_there(Path(address): Path<String>) -> Result<(), StatusCode> {
@@ -81,22 +80,32 @@ async fn get_stats() -> Result<Json<Stats>, StatusCode> {
         .query_map([], |row| row.get::<usize, String>(0))
         .map_err(|err| handle_db_error(Box::new(err)))?;
     let num_wallets = rows.count();
-    let (total_txs, total_notes_created, total_faucet_requests) =
-        std::fs::read_to_string(STATS_FILE)
-            .ok()
-            .and_then(|s| {
-                let parts: Vec<&str> = s.trim().split(',').collect();
-                if parts.len() == 3 {
-                    Some((
-                        parts[0].parse::<u32>().unwrap_or(0),
-                        parts[1].parse::<u32>().unwrap_or(0),
-                        parts[2].parse::<u32>().unwrap_or(0),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or((0, 0, 0));
+
+    let mut stmt = conn
+        .prepare("SELECT COUNT(*) FROM TRANSACTIONS_DETAIL")
+        .map_err(|err| handle_db_error(Box::new(err)))?;
+
+    let total_txs: u32 = stmt
+        .query_row([], |row| row.get(0))
+        .map_err(|err| handle_db_error(Box::new(err)))?;
+
+    let mut stmt = conn
+        .prepare("SELECT COUNT(*) FROM TRANSACTIONS_DETAIL WHERE tx_kind = 'faucet_request'")
+        .map_err(|err| handle_db_error(Box::new(err)))?;
+
+    let total_faucet_requests: u32 = stmt
+        .query_row([], |row| row.get(0))
+        .map_err(|err| handle_db_error(Box::new(err)))?;
+
+    let mut stmt = conn
+        .prepare("SELECT COUNT(*) FROM TRANSACTIONS_DETAIL WHERE tx_kind = 'send'")
+        .map_err(|err| handle_db_error(Box::new(err)))?;
+
+    let total_notes_created: u32 = stmt
+        .query_row([], |row| row.get(0))
+        .map_err(|err| handle_db_error(Box::new(err)))?;
+
+    let total_notes_created = total_notes_created + total_faucet_requests;
     let stats = Stats {
         notes_created: total_notes_created,
         total_transactions: total_txs as u32,
