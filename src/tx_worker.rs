@@ -8,11 +8,11 @@ use miden_objects::account::NetworkId;
 use rusqlite::{Connection, Row};
 
 use crate::{
-    server::{FAUCET_ID, STATS_FILE},
+    server::{APP_DB, FAUCET_ID, STATS_FILE},
     utils::legacy_accountid_to_bech32,
 };
 
-const SYNC_BLOCK_FILE: &str = "./last_sync_block.txt";
+pub const SYNC_BLOCK_FILE: &str = "./last_sync_block.txt";
 /// Creates a worker that polls raw blocks from the rpc and see if there are changes
 /// made for the rpc
 
@@ -25,12 +25,12 @@ pub struct NoteData {
 
 #[derive(serde::Serialize, Debug)]
 pub struct Transaction {
-    tx_id: String,
-    tx_kind: String,
-    sender: String,
-    block_num: u32,
-    note_id: Option<NoteData>,
-    timestamp: u32,
+    pub tx_id: String,
+    pub tx_kind: String,
+    pub sender: String,
+    pub block_num: u32,
+    pub note_id: Option<NoteData>,
+    pub timestamp: u32,
 }
 
 impl Transaction {
@@ -187,7 +187,7 @@ pub fn update_db(conn: &Connection, sync_info: &StateSyncInfo) {
         return;
     }
     let mut stmt = conn
-        .prepare("INSERT INTO TRANSACTIONS_DETAIL (block_num, tx_id, tx_kind, sender, timestamp, note_id, note_type, note_aux) VALUES (?1, ?2,  ?3, ?4, ?5, ?6, ?7, ?8)")
+        .prepare("INSERT OR IGNORE INTO TRANSACTIONS_DETAIL (block_num, tx_id, tx_kind, sender, timestamp, note_id, note_type, note_aux) VALUES (?1, ?2,  ?3, ?4, ?5, ?6, ?7, ?8)")
         .expect("Unable to prepare statement");
     // Read previous totals from file
     let (mut total_txs, mut total_notes_created, mut total_faucet_requests) =
@@ -209,7 +209,6 @@ pub fn update_db(conn: &Connection, sync_info: &StateSyncInfo) {
 
     total_txs += sync_info.transactions.len();
     total_notes_created += sync_info.note_inclusions.len();
-
     for tx in sync_info.transactions.iter() {
         let tx_id = tx.transaction_id.to_hex();
         let sender = tx.account_id;
@@ -241,6 +240,7 @@ pub fn update_db(conn: &Connection, sync_info: &StateSyncInfo) {
             }),
             timestamp: sync_info.block_header.timestamp(),
         };
+        println!("Inserting tx: {:?}", tx);
         stmt.execute(tx.into_sql_value()).unwrap();
     }
 
@@ -278,7 +278,7 @@ pub fn get_accounts_to_be_tracked(conn: &Connection) -> Vec<AccountId> {
 }
 
 pub async fn start_worker() {
-    let conn = Connection::open("./app_db.sqlite3").expect("Cannot open db");
+    let conn = Connection::open(APP_DB).expect("Cannot open db");
     let endpoint = Endpoint::testnet();
     let rpc = TonicRpcClient::new(&endpoint, 100_000);
 
@@ -290,20 +290,36 @@ pub async fn start_worker() {
     println!("worker started");
     loop {
         let accounts_to_be_tracked = get_accounts_to_be_tracked(&conn);
+        println!("{}", accounts_to_be_tracked.len());
         let empty_btree_set = BTreeSet::new();
         // API allows at max 1000 accounts
         let mut chunked_accounts = accounts_to_be_tracked.chunks(1000);
 
         while let Some(accounts) = chunked_accounts.next() {
-            let sync_result = rpc
-                .sync_state(last_sync_block.into(), accounts, &empty_btree_set)
-                .await
-                .expect("Sync failed");
-            last_sync_block = sync_result.chain_tip.as_u32();
-            std::fs::write(SYNC_BLOCK_FILE, last_sync_block.to_string())
-                .expect("Failed to write last_sync_block");
-            update_db(&conn, &sync_result);
+            println!("chunk len {}", accounts.len());
+            let mut total_count = 0;
+            for i in 1..100000 {
+                let sync_result = rpc
+                    .sync_state(
+                        i.into(),
+                        &[AccountId::from_hex("0xc8631aee9dcb5b201457dad3575a9e").unwrap()],
+                        &empty_btree_set,
+                    )
+                    .await
+                    .expect("Sync failed");
+                total_count += sync_result.transactions.len();
+                println!(
+                    "Syncing block {}, got {} transactions",
+                    i,
+                    sync_result.transactions.len()
+                );
+            }
+            println!("total count {}", total_count);
+            println!("last sync block {}", last_sync_block);
+            // update_db(&conn, &sync_result);
         }
+        std::fs::write(SYNC_BLOCK_FILE, last_sync_block.to_string())
+            .expect("Failed to write last_sync_block");
         // a 1 second sleep to not get rate limited
         tokio::time::sleep(Duration::from_secs(3)).await;
     }
