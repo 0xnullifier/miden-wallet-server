@@ -182,12 +182,35 @@ pub fn get_number_of_tx_for_address(conn: &Connection, account_id: &str) -> Resu
     Ok(res)
 }
 
+pub fn get_accounts_to_be_tracked(conn: &Connection) -> Vec<AccountId> {
+    let mut accounts_stmt = conn
+        .prepare("SELECT * FROM ACCOUNTS")
+        .expect("Query failed");
+    let rows = accounts_stmt
+        .query_map([], |row| row.get::<usize, String>(1))
+        .expect("Query for account id failed");
+    let mut accounts_to_be_tracked: Vec<AccountId> = rows
+        .map(|wallet| {
+            let wallet = wallet.expect("Cannot get wallet from db");
+            match Address::from_bech32(&wallet) {
+                Ok((_, Address::AccountId(id))) => id.id(),
+                Ok((_, _)) => panic!("Address is not an AccountId"),
+                Err(_) => legacy_accountid_to_bech32(&wallet)
+                    .expect("Cannot convert legacy account id to bech32"),
+            }
+        })
+        .collect();
+
+    accounts_to_be_tracked.push(*FAUCET_ID);
+    accounts_to_be_tracked
+}
+
 pub fn update_db(conn: &Connection, sync_info: &StateSyncInfo) {
     if sync_info.transactions.is_empty() {
         return;
     }
     let mut stmt = conn
-        .prepare("INSERT OR  INTO TRANSACTIONS_DETAIL (block_num, tx_id, tx_kind, sender, timestamp, note_id, note_type, note_aux) VALUES (?1, ?2,  ?3, ?4, ?5, ?6, ?7, ?8)")
+        .prepare("INSERT OR IGNORE INTO TRANSACTIONS_DETAIL (block_num, tx_id, tx_kind, sender, timestamp, note_id, note_type, note_aux) VALUES (?1, ?2,  ?3, ?4, ?5, ?6, ?7, ?8)")
         .expect("Unable to prepare statement");
 
     for tx in sync_info.transactions.iter() {
@@ -220,32 +243,8 @@ pub fn update_db(conn: &Connection, sync_info: &StateSyncInfo) {
             }),
             timestamp: sync_info.block_header.timestamp(),
         };
-        println!("Inserting tx: {:?}", tx);
         stmt.execute(tx.into_sql_value()).unwrap();
     }
-}
-
-pub fn get_accounts_to_be_tracked(conn: &Connection) -> Vec<AccountId> {
-    let mut accounts_stmt = conn
-        .prepare("SELECT * FROM ACCOUNTS")
-        .expect("Query failed");
-    let rows = accounts_stmt
-        .query_map([], |row| row.get::<usize, String>(1))
-        .expect("Query for account id failed");
-    let mut accounts_to_be_tracked: Vec<AccountId> = rows
-        .map(|wallet| {
-            let wallet = wallet.expect("Cannot get wallet from db");
-            match Address::from_bech32(&wallet) {
-                Ok((_, Address::AccountId(id))) => id.id(),
-                Ok((_, _)) => panic!("Address is not an AccountId"),
-                Err(_) => legacy_accountid_to_bech32(&wallet)
-                    .expect("Cannot convert legacy account id to bech32"),
-            }
-        })
-        .collect();
-
-    accounts_to_be_tracked.push(*FAUCET_ID);
-    accounts_to_be_tracked
 }
 
 pub async fn start_worker() {
@@ -261,21 +260,31 @@ pub async fn start_worker() {
     println!("worker started");
     loop {
         let accounts_to_be_tracked = get_accounts_to_be_tracked(&conn);
-        println!("{}", accounts_to_be_tracked.len());
         let empty_btree_set = BTreeSet::new();
         // API allows at max 1000 accounts
-        let mut chunked_accounts = accounts_to_be_tracked.chunks(1000);
-        let mut new_sync_block = 0;
-        while let Some(accounts) = chunked_accounts.next() {
-            let sync_result = rpc
-                .sync_state(last_sync_block.into(), &accounts, &empty_btree_set)
-                .await
-                .expect("Sync failed");
-            update_db(&conn, &sync_result);
-            new_sync_block = sync_result.chain_tip.as_u32();
+        let latest_block = rpc
+            .sync_state(last_sync_block.into(), &[], &empty_btree_set)
+            .await
+            .expect("Sync failed")
+            .chain_tip
+            .as_u32();
+        let mut i = last_sync_block;
+        while i <= latest_block {
+            let mut accounts_chunks = accounts_to_be_tracked.chunks(1000);
+            while let Some(accounts) = accounts_chunks.next() {
+                let sync_info = match rpc.sync_state(i.into(), &accounts, &empty_btree_set).await {
+                    Ok(info) => info,
+                    Err(err) => {
+                        println!("Error syncing block {}: {}", i, err);
+                        continue;
+                    }
+                };
+                update_db(&conn, &sync_info);
+            }
+            i += 1;
         }
-        last_sync_block = new_sync_block;
-        std::fs::write(SYNC_BLOCK_FILE, new_sync_block.to_string())
+        last_sync_block = latest_block;
+        std::fs::write(SYNC_BLOCK_FILE, last_sync_block.to_string())
             .expect("Failed to write last_sync_block");
         tokio::time::sleep(Duration::from_secs(3)).await;
     }

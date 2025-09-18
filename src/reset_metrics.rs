@@ -100,14 +100,13 @@ pub async fn reset_metrics(
 }
 
 /// returns the total txs, total notes created, total faucet requests
-async fn update_db_raw_block(
+pub async fn update_db_raw_block(
     conn: &Connection,
     rpc: &TonicRpcClient,
     accounts_to_be_tracked: &BTreeSet<AccountId>,
     block: &ProvenBlock,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // check if the block contains updated accounts we are tracking
-
     let mut stmt = conn
         .prepare("INSERT OR IGNORE INTO TRANSACTIONS_DETAIL (block_num, tx_id, tx_kind, sender, timestamp, note_id, note_type, note_aux) VALUES (?1, ?2,  ?3, ?4, ?5, ?6, ?7, ?8)")
         .expect("Unable to prepare statement");
