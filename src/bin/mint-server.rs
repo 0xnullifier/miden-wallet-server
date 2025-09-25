@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
+use miden_client::ClientError;
 use miden_client::account::{AccountId, Address};
 use miden_client::asset::FungibleAsset;
 use miden_client::note::NoteType;
@@ -77,13 +78,19 @@ fn handle_client(mut stream: TcpStream) {
 
                         let digest = transaction_execution_result.executed_transaction().id();
 
-                        client
+                        match client
                             .submit_transaction_with_prover(
-                                transaction_execution_result,
+                                transaction_execution_result.clone(),
                                 remote_prover,
                             )
                             .await
-                            .expect("Failed to submit transaction");
+                        {
+                            Ok(_) => {}
+                            Err(e) => if matches!(e, ClientError::TransactionProvingError(_)) {
+                                println!("Proving error encountered, retrying without remote prover...");
+                                client.submit_transaction(transaction_execution_result).await.expect("Failed to submit transaction");
+                            },
+                        }
 
                         conn.execute(
                             "INSERT OR IGNORE INTO ACCOUNTS (wallet_address) VALUES (?1)",

@@ -229,7 +229,7 @@ pub fn update_db(conn: &Connection, sync_info: &StateSyncInfo) {
             "receive"
         };
         let sender_address =
-            Address::from(AccountIdAddress::new(sender, AddressInterface::BasicWallet));
+            Address::from(AccountIdAddress::new(sender, AddressInterface::Unspecified));
 
         let tx = Transaction {
             tx_id,
@@ -282,6 +282,8 @@ pub async fn start_worker() {
                 update_db(&conn, &sync_info);
             }
             i += 1;
+            std::fs::write(SYNC_BLOCK_FILE, i.to_string())
+                .expect("Failed to write last_sync_block");
         }
         last_sync_block = latest_block;
         std::fs::write(SYNC_BLOCK_FILE, last_sync_block.to_string())
