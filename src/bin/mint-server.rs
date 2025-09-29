@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use miden_client::account::{AccountId, Address};
 use miden_client::asset::FungibleAsset;
@@ -11,6 +11,7 @@ use miden_client::note::{NoteType, create_p2id_note};
 use miden_client::transaction::{OutputNote, TransactionRequestBuilder};
 use miden_client::{ClientError, Felt};
 use miden_faucet_server::utils::init_client_and_prover;
+use threadpool::ThreadPool;
 use tokio::runtime::Builder;
 use tokio::sync::oneshot;
 
@@ -74,12 +75,12 @@ async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
         Ok(_) => Ok(digest),
         Err(e) => match e {
             ClientError::TransactionProvingError(_) => {
-                println!("Error submitting transaction: {:?}", e);
-                println!("Transaction proving error: {:?}", e);
+                let time = Instant::now();
                 client
                     .submit_transaction(tx_execution_result)
                     .await
                     .map_err(|e| e.to_string())?;
+                println!("locally proven in {:?}", time.elapsed());
                 Ok(digest)
             }
             _ => Err(e.to_string()),
@@ -87,7 +88,7 @@ async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
     }
 }
 
-fn start_queue_processor() {
+fn start_queue_processor() -> JoinHandle<()> {
     let queue = MINT_QUEUE.clone();
 
     thread::spawn(move || {
@@ -126,7 +127,7 @@ fn start_queue_processor() {
                 let _ = request.response_tx.send(result.clone());
             }
         }
-    });
+    })
 }
 
 fn handle_client(mut stream: TcpStream) {
@@ -227,8 +228,10 @@ Access-Control-Allow-Headers: Content-Type\r\n\
 /// NEED TO ADD THIS TO CREATE CONTEXT FOR THE ASYNC RUNTIME IN THE CLIENT
 pub fn main() -> std::io::Result<()> {
     dotenvy::dotenv().ok();
+    let n_workers = 20;
+    let pool = ThreadPool::new(n_workers);
 
-    // Start the queue processor
+    // Start the fucking queue processor!
     start_queue_processor();
     println!("Queue processor started - will process batches every 10 seconds");
 
@@ -238,8 +241,7 @@ pub fn main() -> std::io::Result<()> {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                // Handle each client in a separate thread for true concurrency
-                thread::spawn(move || {
+                pool.execute(|| {
                     handle_client(stream);
                 });
             }

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use bech32::{Bech32m, primitives::decode::CheckedHrpstring};
 use miden_client::{
@@ -67,7 +67,6 @@ pub async fn init_client_and_prover() -> (
     Client<FilesystemKeyStore<StdRng>>,
     Arc<RemoteTransactionProver>,
 ) {
-    println!("Initializing client and prover...");
     let endpoint = Endpoint::testnet();
     let timeout_ms = 10_000;
     let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
@@ -79,10 +78,11 @@ pub async fn init_client_and_prover() -> (
         .build()
         .await
         .expect("Failed to build client");
-    println!("Client built, syncing state...");
+
+    let time = Instant::now();
     client.sync_state().await.expect("Failed to sync state");
-    println!("State synced.");
+    println!("State synced in {}s", time.elapsed().as_secs_f32());
+
     let remote_prover = Arc::new(RemoteTransactionProver::new(TX_PROVER_ENDPOINT.to_string()));
-    println!("Remote prover initialized.");
     (client, remote_prover)
 }
