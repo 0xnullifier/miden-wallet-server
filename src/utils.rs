@@ -74,7 +74,7 @@ pub async fn init_client_and_prover() -> (
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
         .in_debug_mode(true.into())
-        .sqlite_store("./testnet.sqlite3")
+        .sqlite_store("./testnet_new.sqlite3")
         .build()
         .await
         .expect("Failed to build client");

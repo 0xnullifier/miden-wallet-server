@@ -76,6 +76,7 @@ async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
         Err(e) => match e {
             ClientError::TransactionProvingError(_) => {
                 let time = Instant::now();
+                println!("Got proving error, {:?}", e);
                 client
                     .submit_transaction(tx_execution_result)
                     .await

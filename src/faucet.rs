@@ -4,7 +4,7 @@ use miden_client::{
     Client, Felt,
     account::{
         AccountBuilder, AccountStorageMode, AccountType,
-        component::{AuthRpoFalcon512, BasicFungibleFaucet},
+        component::{AuthRpoFalcon512, BasicFungibleFaucet, FungibleFaucetExt},
     },
     asset::TokenSymbol,
     auth::AuthSecretKey,
@@ -23,7 +23,7 @@ pub async fn create_new_faucet(endpoint: Endpoint) -> Result<(), Box<dyn std::er
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
         .in_debug_mode(true.into())
-        .sqlite_store("./testnet.sqlite3")
+        .sqlite_store("./testnet_new.sqlite3")
         .build()
         .await?;
     let keystore = FilesystemKeyStore::new("./keystore".into())?;
@@ -31,7 +31,7 @@ pub async fn create_new_faucet(endpoint: Endpoint) -> Result<(), Box<dyn std::er
     client.rng().try_fill_bytes(&mut init_seed)?;
 
     // Faucet parameters
-    let symbol = TokenSymbol::new("MID").unwrap();
+    let symbol = TokenSymbol::new("MDN").unwrap();
     let decimals = 8;
     let max_supply = Felt::new(1_000_000_000_000_000_000u64); // 100 million MID with 8 decimals
 
@@ -44,7 +44,6 @@ pub async fn create_new_faucet(endpoint: Endpoint) -> Result<(), Box<dyn std::er
         .storage_mode(AccountStorageMode::Public)
         .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key()))
         .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap());
-
     let (faucet_account, seed) = builder.build().unwrap();
 
     // Add the faucet to the client
