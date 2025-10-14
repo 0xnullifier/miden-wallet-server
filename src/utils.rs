@@ -63,7 +63,9 @@ pub fn validate_address(bech32_string: &str) -> bool {
     }
 }
 
-pub async fn init_client_and_prover() -> (
+pub async fn init_client_and_prover(
+    client_db: &str,
+) -> (
     Client<FilesystemKeyStore<StdRng>>,
     Arc<RemoteTransactionProver>,
 ) {
@@ -74,7 +76,7 @@ pub async fn init_client_and_prover() -> (
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
         .in_debug_mode(true.into())
-        .sqlite_store("./testnet_new.sqlite3")
+        .sqlite_store(client_db)
         .build()
         .await
         .expect("Failed to build client");

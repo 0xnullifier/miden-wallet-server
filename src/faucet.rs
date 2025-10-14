@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
+use lazy_static::lazy_static;
 use miden_client::{
     Client, Felt,
     account::{
         AccountBuilder, AccountStorageMode, AccountType,
-        component::{AuthRpoFalcon512, BasicFungibleFaucet, FungibleFaucetExt},
+        component::{AuthRpoFalcon512, BasicFungibleFaucet},
     },
     asset::TokenSymbol,
     auth::AuthSecretKey,
@@ -16,6 +17,10 @@ use miden_client::{
 use rand::rngs::StdRng;
 use rand_core::TryRngCore;
 
+lazy_static! {
+    pub static ref CLIENT_DB: String = std::env::var("CLIENT_DB").unwrap();
+}
+
 pub async fn create_new_faucet(endpoint: Endpoint) -> Result<(), Box<dyn std::error::Error>> {
     let timeout_ms = 10_000;
     let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
@@ -23,7 +28,7 @@ pub async fn create_new_faucet(endpoint: Endpoint) -> Result<(), Box<dyn std::er
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
         .in_debug_mode(true.into())
-        .sqlite_store("./testnet_new.sqlite3")
+        .sqlite_store(&CLIENT_DB)
         .build()
         .await?;
     let keystore = FilesystemKeyStore::new("./keystore".into())?;

@@ -20,6 +20,7 @@ use lazy_static::lazy_static;
 lazy_static! {
     pub static ref FAUCET_ID: AccountId =
         AccountId::from_hex(&std::env::var("FAUCET_ID").unwrap()).unwrap();
+    pub static ref CLIENT_DB: String = std::env::var("CLIENT_DB").unwrap();
 }
 
 #[derive(Debug)]
@@ -36,7 +37,7 @@ lazy_static! {
 }
 
 async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
-    let (mut client, prover) = init_client_and_prover().await;
+    let (mut client, prover) = init_client_and_prover(&CLIENT_DB).await;
     let mut p2id_notes = Vec::new();
     for (address, amount) in requests {
         let fungible_asset = FungibleAsset::new(*FAUCET_ID, *amount).unwrap();
@@ -66,8 +67,9 @@ async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
     let tx_execution_result = client
         .new_transaction(*FAUCET_ID, transaction_request)
         .await?;
-    let digest = tx_execution_result.executed_transaction().id().to_hex();
 
+    let digest = tx_execution_result.executed_transaction().id().to_hex();
+    println!("Submitting transaction with digest: {}", digest);
     match client
         .submit_transaction_with_prover(tx_execution_result.clone(), prover)
         .await
@@ -84,7 +86,10 @@ async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
                 println!("locally proven in {:?}", time.elapsed());
                 Ok(digest)
             }
-            _ => Err(e.to_string()),
+            _ => {
+                println!("{:?}", e);
+                Err(e.to_string())
+            }
         },
     }
 }
@@ -99,7 +104,7 @@ fn start_queue_processor() -> JoinHandle<()> {
             .expect("Failed to build Tokio runtime");
 
         loop {
-            thread::sleep(Duration::from_secs(10));
+            thread::sleep(Duration::from_secs(5));
 
             let mut pending_requests = Vec::new();
 
