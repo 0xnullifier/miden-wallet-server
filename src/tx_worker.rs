@@ -1,16 +1,7 @@
-use std::{collections::BTreeSet, time::Duration};
-
-use miden_client::{
-    account::{AccountId, AccountIdAddress, Address, AddressInterface},
-    rpc::{Endpoint, NodeRpcClient, TonicRpcClient, domain::sync::StateSyncInfo},
-};
-use miden_objects::account::NetworkId;
+use miden_client::account::{AccountId, Address};
 use rusqlite::{Connection, Row};
 
-use crate::{
-    server::{APP_DB, FAUCET_ID},
-    utils::legacy_accountid_to_bech32,
-};
+use crate::{server::FAUCET_ID, utils::legacy_accountid_to_bech32};
 
 pub const SYNC_BLOCK_FILE: &str = "./last_sync_block.txt";
 /// Creates a worker that polls raw blocks from the rpc and see if there are changes
@@ -64,7 +55,7 @@ impl Transaction {
 
     pub fn from_sql_row(row: &Row) -> Self {
         let mut note_data = None;
-        if row.get::<usize, String>(6).unwrap() != "NULL".to_string() {
+        if row.get::<usize, String>(6).unwrap() != "NULL" {
             note_data = Some(NoteData {
                 note_id: row.get(6).unwrap(),
                 note_type: row.get(7).unwrap(),
@@ -86,19 +77,19 @@ impl Transaction {
 pub fn get_tx_by_id(conn: &Connection, tx_id: String) -> Result<Transaction, String> {
     let mut stmt = conn
         .prepare("SELECT * FROM TRANSACTIONS_DETAIL WHERE tx_id = :tx_id ")
-        .map_err(|err| format!("failed to open db {}", err.to_string()))?;
+        .map_err(|err| format!("failed to open db {}", err))?;
     let mut rows = stmt
         .query_map(&[(":tx_id", &tx_id)], |row| {
             Ok(Transaction::from_sql_row(row))
         })
-        .map_err(|err| format!("Transaction Not Found {}", err.to_string()))?;
+        .map_err(|err| format!("Transaction Not Found {}", err))?;
 
     let res = match rows.next() {
         Some(res) => res.map_err(|err| err.to_string()),
         None => Err("No transaction foundd".to_string()),
     };
     if rows.count() > 0 {
-        return Err(format!("Failed"));
+        return Err("Failed".to_string());
     };
     res
 }
@@ -119,7 +110,7 @@ pub fn get_txs_in_last_hour(conn: &Connection) -> Result<u32, String> {
     println!("Transactions in last hour: {}", res);
     // If there are more than 0 rows, it means there are transactions in the last
     if rows.count() > 0 {
-        return Err(format!("Failed to get transactions"));
+        return Err("Failed to get transactions".to_string());
     };
     Ok(res)
 }
@@ -177,7 +168,7 @@ pub fn get_number_of_tx_for_address(conn: &Connection, account_id: &str) -> Resu
         .unwrap()
         .map_err(|err| format!("Error getting transactions {}", err))?;
     if rows.count() > 0 {
-        return Err(format!("Failed to get transactions"));
+        return Err("Failed to get transactions".to_string());
     };
     Ok(res)
 }
@@ -203,91 +194,4 @@ pub fn get_accounts_to_be_tracked(conn: &Connection) -> Vec<AccountId> {
 
     accounts_to_be_tracked.push(*FAUCET_ID);
     accounts_to_be_tracked
-}
-
-pub fn update_db(conn: &Connection, sync_info: &StateSyncInfo) {
-    if sync_info.transactions.is_empty() {
-        return;
-    }
-    let mut stmt = conn
-        .prepare("INSERT OR IGNORE INTO TRANSACTIONS_DETAIL (block_num, tx_id, tx_kind, sender, timestamp, note_id, note_type, note_aux) VALUES (?1, ?2,  ?3, ?4, ?5, ?6, ?7, ?8)")
-        .expect("Unable to prepare statement");
-
-    for tx in sync_info.transactions.iter() {
-        let tx_id = tx.transaction_id.to_hex();
-        let sender = tx.account_id;
-        let found_note = sync_info
-            .note_inclusions
-            .iter()
-            .find(|note| note.metadata().sender() == sender);
-
-        let tx_kind = if sender == *FAUCET_ID {
-            "faucet_request"
-        } else if found_note.is_some() {
-            "send"
-        } else {
-            "receive"
-        };
-        let sender_address =
-            Address::from(AccountIdAddress::new(sender, AddressInterface::Unspecified));
-
-        let tx = Transaction {
-            tx_id,
-            tx_kind: tx_kind.to_string(),
-            sender: sender_address.to_bech32(NetworkId::Testnet),
-            block_num: sync_info.chain_tip.as_u32(),
-            note_id: found_note.map(|note| NoteData {
-                note_id: note.note_id().to_hex(),
-                note_type: note.metadata().note_type().to_string(),
-                note_aux: note.metadata().aux().to_string(),
-            }),
-            timestamp: sync_info.block_header.timestamp(),
-        };
-        stmt.execute(tx.into_sql_value()).unwrap();
-    }
-}
-
-pub async fn start_worker() {
-    let conn = Connection::open(APP_DB).expect("Cannot open db");
-    let endpoint = Endpoint::testnet();
-    let rpc = TonicRpcClient::new(&endpoint, 100_000);
-
-    let mut last_sync_block = std::fs::read_to_string(SYNC_BLOCK_FILE)
-        .ok()
-        .and_then(|s| s.trim().parse::<u32>().ok())
-        .unwrap_or(1);
-
-    println!("worker started");
-    loop {
-        let accounts_to_be_tracked = get_accounts_to_be_tracked(&conn);
-        let empty_btree_set = BTreeSet::new();
-        // API allows at max 1000 accounts
-        let latest_block = rpc
-            .sync_state(last_sync_block.into(), &[], &empty_btree_set)
-            .await
-            .expect("Sync failed")
-            .chain_tip
-            .as_u32();
-        let mut i = last_sync_block;
-        while i <= latest_block {
-            let mut accounts_chunks = accounts_to_be_tracked.chunks(1000);
-            while let Some(accounts) = accounts_chunks.next() {
-                let sync_info = match rpc.sync_state(i.into(), &accounts, &empty_btree_set).await {
-                    Ok(info) => info,
-                    Err(err) => {
-                        println!("Error syncing block {}: {}", i, err);
-                        continue;
-                    }
-                };
-                update_db(&conn, &sync_info);
-            }
-            i += 1;
-            std::fs::write(SYNC_BLOCK_FILE, i.to_string())
-                .expect("Failed to write last_sync_block");
-        }
-        last_sync_block = latest_block;
-        std::fs::write(SYNC_BLOCK_FILE, last_sync_block.to_string())
-            .expect("Failed to write last_sync_block");
-        tokio::time::sleep(Duration::from_secs(3)).await;
-    }
 }

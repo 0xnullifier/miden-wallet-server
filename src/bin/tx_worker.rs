@@ -1,17 +1,16 @@
-use std::{collections::BTreeSet, time::Instant};
-
 use miden_client::{
     account::{AccountId, AccountIdAddress, Address, AddressInterface, NetworkId},
     rpc::{Endpoint, NodeRpcClient, TonicRpcClient, domain::note::FetchedNote},
 };
-use miden_objects::block::ProvenBlock;
-use rusqlite::Connection;
-
-use crate::{
+use miden_faucet_server::{
     server::{APP_DB, FAUCET_ID},
-    tx_worker::{NoteData, Transaction},
+    tx_worker::{NoteData, SYNC_BLOCK_FILE, Transaction},
     utils::legacy_accountid_to_bech32,
 };
+use miden_objects::block::ProvenBlock;
+use rusqlite::Connection;
+use std::error::Error;
+use std::{collections::BTreeSet, time::Duration};
 
 pub fn get_accounts_to_be_tracked(conn: &Connection) -> BTreeSet<AccountId> {
     let mut stmt = conn
@@ -36,67 +35,6 @@ pub fn get_accounts_to_be_tracked(conn: &Connection) -> BTreeSet<AccountId> {
     }
     accounts.insert(*FAUCET_ID);
     accounts
-}
-
-pub async fn reset_metrics(
-    start_block: u32,
-    endp: Endpoint,
-    wipe: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let time = Instant::now();
-    let conn = Connection::open(APP_DB)?;
-    // delete the db
-    if wipe {
-        conn.execute("DELETE FROM TRANSACTIONS_DETAIL", [])?;
-    }
-    let rpc = TonicRpcClient::new(&endp, 100_000);
-    let empty_btree_set = BTreeSet::new();
-
-    // find the latest block
-    let latest_block = rpc
-        .sync_state(0.into(), &[], &empty_btree_set)
-        .await?
-        .chain_tip
-        .as_u32();
-
-    println!("Latest block: {}", latest_block);
-
-    // find accounts to be tracked
-    let accounts_to_be_tracked = get_accounts_to_be_tracked(&conn);
-
-    let mut i = start_block;
-
-    while i < latest_block {
-        if i.is_multiple_of(100) {
-            println!(
-                "Progress: {:.2}%, Block: {}/{}",
-                (i as f64 / latest_block as f64) * 100.0,
-                i,
-                latest_block
-            );
-        }
-        let raw_block = match rpc.get_block_by_number(i.into()).await {
-            Ok(block) => block,
-            Err(e) => {
-                panic!("Error fetching block {}: {}", i, e);
-            }
-        };
-        let updated_accounts: Vec<AccountId> = raw_block
-            .updated_accounts()
-            .iter()
-            .map(|acc| acc.account_id())
-            .collect();
-        let other: BTreeSet<AccountId> = updated_accounts.into_iter().collect();
-        if accounts_to_be_tracked.is_disjoint(&other) {
-            i += 1;
-            continue;
-        }
-        update_db_raw_block(&conn, &rpc, &accounts_to_be_tracked, &raw_block).await?;
-        i += 1;
-    }
-
-    println!("Reset metrics took {:?}", time.elapsed());
-    Ok(())
 }
 
 /// returns the total txs, total notes created, total faucet requests
@@ -152,7 +90,7 @@ pub async fn update_db_raw_block(
         };
 
         let sender_address =
-            Address::from(AccountIdAddress::new(sender, AddressInterface::BasicWallet));
+            Address::from(AccountIdAddress::new(sender, AddressInterface::Unspecified));
 
         let tx = Transaction {
             tx_id,
@@ -165,4 +103,64 @@ pub async fn update_db_raw_block(
         stmt.execute(tx.into_sql_value())?;
     }
     Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    dotenvy::dotenv()?;
+    println!("WORKER STARTED");
+    let conn = Connection::open(APP_DB).expect("Cannot open db");
+    let rpc = TonicRpcClient::new(&Endpoint::testnet(), 100_000);
+    let empty_btree_set = BTreeSet::new();
+
+    // get the last sync block
+    let mut last_sync_block = std::fs::read_to_string(SYNC_BLOCK_FILE)
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .unwrap_or(1);
+    loop {
+        // find accounts to be tracked
+        let accounts_to_be_tracked = get_accounts_to_be_tracked(&conn);
+        // find the latest block
+        let latest_block = rpc
+            .sync_state(0.into(), &[], &empty_btree_set)
+            .await?
+            .chain_tip
+            .as_u32();
+        let mut i = last_sync_block;
+        while i <= latest_block {
+            if i.is_multiple_of(100) {
+                println!(
+                    "Progress: {:.2}%, Block: {}/{}",
+                    (i as f64 / latest_block as f64) * 100.0,
+                    i,
+                    latest_block
+                );
+            }
+            let raw_block = match rpc.get_block_by_number(i.into()).await {
+                Ok(block) => block,
+                Err(e) => {
+                    panic!("Error fetching block {}: {}", i, e);
+                }
+            };
+            let updated_accounts: Vec<AccountId> = raw_block
+                .updated_accounts()
+                .iter()
+                .map(|acc| acc.account_id())
+                .collect();
+            let other: BTreeSet<AccountId> = updated_accounts.into_iter().collect();
+            if accounts_to_be_tracked.is_disjoint(&other) {
+                i += 1;
+                continue;
+            }
+            update_db_raw_block(&conn, &rpc, &accounts_to_be_tracked, &raw_block).await?;
+            i += 1;
+            std::fs::write(SYNC_BLOCK_FILE, i.to_string())
+                .expect("Failed to write last_sync_block");
+        }
+        last_sync_block = latest_block;
+        std::fs::write(SYNC_BLOCK_FILE, last_sync_block.to_string())
+            .expect("Failed to write last_sync_block");
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
 }

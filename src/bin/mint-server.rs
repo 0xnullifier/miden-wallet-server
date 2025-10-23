@@ -212,17 +212,14 @@ Access-Control-Allow-Headers: Content-Type\r\n\
                         ),
                     };
                     stream.write_all(response.as_bytes()).unwrap();
-                    return;
                 } else {
                     let response = "HTTP/1.1 400 BAD REQUEST\r\nContent-Type: text/plain\r\n\r\nInvalid mint request format. Use /mint/<address>/<amount>";
                     stream.write_all(response.as_bytes()).unwrap();
-                    return;
                 }
             } else {
                 let response =
                     "HTTP/1.1 404 NOT FOUND\r\nContent-Type: text/plain\r\n\r\nNot Found";
                 stream.write_all(response.as_bytes()).unwrap();
-                return;
             }
         }
         Err(e) => {

@@ -1,0 +1,13 @@
+[Unit]
+Description=Tx worker
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/make start_tx_worker
+Restart=on-failure
+RestartSec=5
+User=root
+WorkingDirectory=/root/miden-wallet-server
+
+[Install]
+WantedBy=multi-user.target

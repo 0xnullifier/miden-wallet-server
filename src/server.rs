@@ -10,7 +10,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     tx_worker::{
-        self, Transaction, get_number_of_tx_for_address, get_transactions_by_account, get_tx_by_id,
+        Transaction, get_number_of_tx_for_address, get_transactions_by_account, get_tx_by_id,
         get_txs_in_last_hour, get_txs_latest,
     },
     utils::validate_address,
@@ -26,7 +26,7 @@ pub const APP_DB: &str = "./app_db.sqlite3";
 async fn add_address_if_not_there(Path(address): Path<String>) -> Result<(), StatusCode> {
     // validate if address is actully a address
     validate_address(&address)
-        .then(|| ())
+        .then_some(())
         .ok_or(StatusCode::BAD_REQUEST)?;
     println!("request for adding account {}", address);
     let conn = Connection::open(APP_DB).expect("FAILED TO OPEN DB");
@@ -108,7 +108,7 @@ async fn get_stats() -> Result<Json<Stats>, StatusCode> {
     let total_notes_created = total_notes_created + total_faucet_requests;
     let stats = Stats {
         notes_created: total_notes_created,
-        total_transactions: total_txs as u32,
+        total_transactions: total_txs,
         transactions_in_last_hour: get_txs_in_last_hour(&conn).map_err(|err| {
             println!("{}", err);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -168,7 +168,7 @@ async fn get_transactions_for_account(
     Address::from_bech32(&address).map_err(|_| StatusCode::BAD_REQUEST)?;
     let res = get_transactions_by_account(&conn, &address, page_number).map_err(|err| {
         println!("{}", err);
-        return StatusCode::INTERNAL_SERVER_ERROR;
+        StatusCode::INTERNAL_SERVER_ERROR
     })?;
     if res.is_empty() {
         return Err(StatusCode::NOT_FOUND);
@@ -262,7 +262,6 @@ pub async fn start_server() -> Result<(), Box<dyn Error>> {
 
     println!("Server starting on 0.0.0.0:8000");
     println!("CORS origins: {}", cors_origins);
-    tokio::spawn(tx_worker::start_worker());
     axum::serve(listener, app).await?;
 
     Ok(())

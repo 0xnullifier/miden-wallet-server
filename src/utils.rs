@@ -11,7 +11,7 @@ use miden_client::{
 use rand::rngs::StdRng;
 
 const SERIALIZED_SIZE: usize = 15;
-const TX_PROVER_ENDPOINT: &'static str = "https://tx-prover.testnet.miden.io";
+const TX_PROVER_ENDPOINT: &str = "https://tx-prover.testnet.miden.io";
 
 /// Copy from earlier version of Miden Base
 pub fn legacy_accountid_to_bech32(bech32_string: &str) -> Result<AccountId, String> {
