@@ -37,8 +37,10 @@ lazy_static! {
 }
 
 async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
+    println!("Starting mint requests");
     let (mut client, prover) = init_client_and_prover(&CLIENT_DB).await;
     let mut p2id_notes = Vec::new();
+    println!("client initied");
     for (address, amount) in requests {
         let fungible_asset = FungibleAsset::new(*FAUCET_ID, *amount).unwrap();
         let target = match Address::from_bech32(address) {
@@ -59,6 +61,7 @@ async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
         p2id_notes.push(p2id_note);
     }
+    println!("done creating notes");
     let output_notes: Vec<OutputNote> = p2id_notes.into_iter().map(OutputNote::Full).collect();
     let transaction_request = TransactionRequestBuilder::new()
         .own_output_notes(output_notes)
@@ -67,7 +70,7 @@ async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
     let tx_execution_result = client
         .new_transaction(*FAUCET_ID, transaction_request)
         .await?;
-
+    println!("tx executed");
     let digest = tx_execution_result.executed_transaction().id().to_hex();
     println!("Submitting transaction with digest: {}", digest);
     match client
