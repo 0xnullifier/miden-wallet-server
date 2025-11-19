@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, io::Read};
 
 use axum::{Json, Router, extract::Path, http::StatusCode, routing::get};
 use lazy_static::lazy_static;
@@ -10,8 +10,8 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     tx_worker::{
-        Transaction, get_number_of_tx_for_address, get_transactions_by_account, get_tx_by_id,
-        get_txs_in_last_hour, get_txs_latest,
+        SYNC_BLOCK_FILE, Transaction, get_number_of_tx_for_address, get_transactions_by_account,
+        get_tx_by_id, get_txs_in_last_hour, get_txs_latest,
     },
     utils::validate_address,
 };
@@ -126,6 +126,15 @@ async fn get_txs_latest_api() -> Result<Json<Vec<Transaction>>, String> {
     Ok(Json(txs))
 }
 
+async fn get_last_sync_block() -> Result<Json<String>, String> {
+    let mut file = std::fs::File::open(SYNC_BLOCK_FILE)
+        .map_err(|err| format!("Failed to open last synced block file: {}", err))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .map_err(|err| format!("Failed to read last synced block file: {}", err))?;
+    Ok(Json(contents))
+}
+
 #[derive(serde::Serialize, Debug)]
 struct ChartData {
     pub total_tx: u32,
@@ -165,7 +174,7 @@ async fn get_transactions_for_account(
     Path((address, page_number)): Path<(String, u32)>,
 ) -> Result<Json<Vec<Transaction>>, StatusCode> {
     let conn = Connection::open(APP_DB).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Address::from_bech32(&address).map_err(|_| StatusCode::BAD_REQUEST)?;
+    AccountId::from_bech32(&address).map_err(|_| StatusCode::BAD_REQUEST)?;
     let res = get_transactions_by_account(&conn, &address, page_number).map_err(|err| {
         println!("{}", err);
         StatusCode::INTERNAL_SERVER_ERROR
@@ -178,7 +187,7 @@ async fn get_transactions_for_account(
 
 async fn get_tx_count_for_account(Path(address): Path<String>) -> Result<Json<u32>, StatusCode> {
     let conn = Connection::open(APP_DB).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Address::from_bech32(&address).map_err(|_| StatusCode::BAD_REQUEST)?;
+    AccountId::from_bech32(&address).map_err(|_| StatusCode::BAD_REQUEST)?;
     let res = get_number_of_tx_for_address(&conn, &address).map_err(|err| {
         println!("{}", err);
         StatusCode::INTERNAL_SERVER_ERROR
@@ -256,6 +265,7 @@ pub async fn start_server() -> Result<(), Box<dyn Error>> {
             "/transactions/{address}/count",
             get(get_tx_count_for_account),
         )
+        .route("/indexer/last_sync", get(get_last_sync_block))
         .layer(ServiceBuilder::new().layer(cors_layer));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await.unwrap();

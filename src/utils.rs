@@ -3,15 +3,16 @@ use std::{sync::Arc, time::Instant};
 use bech32::{Bech32m, primitives::decode::CheckedHrpstring};
 use miden_client::{
     Client, RemoteTransactionProver,
-    account::{AccountId, Address, AddressType},
+    account::{AccountId, AddressType},
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
-    rpc::{Endpoint, TonicRpcClient},
+    rpc::{Endpoint, GrpcClient},
 };
+use miden_client_sqlite_store::SqliteStore;
 use rand::rngs::StdRng;
 
 const SERIALIZED_SIZE: usize = 15;
-const TX_PROVER_ENDPOINT: &str = "https://tx-prover.testnet.miden.io";
+const TX_PROVER_ENDPOINT: &str = "https://tx-prover.devnet.miden.io";
 
 /// Copy from earlier version of Miden Base
 pub fn legacy_accountid_to_bech32(bech32_string: &str) -> Result<AccountId, String> {
@@ -53,30 +54,27 @@ pub fn legacy_accountid_to_bech32(bech32_string: &str) -> Result<AccountId, Stri
 }
 
 pub fn validate_address(bech32_string: &str) -> bool {
-    match Address::from_bech32(bech32_string) {
-        Ok((_, Address::AccountId(_))) => true,
+    match AccountId::from_bech32(bech32_string) {
         Ok((_, _)) => true,
-        Err(_) => {
-            // Try legacy format
-            legacy_accountid_to_bech32(bech32_string).is_ok()
-        }
+        Err(_) => false,
     }
 }
 
 pub async fn init_client_and_prover(
     client_db: &str,
-) -> (
-    Client<FilesystemKeyStore<StdRng>>,
-    Arc<RemoteTransactionProver>,
-) {
-    let endpoint = Endpoint::testnet();
+    endpoint: Endpoint,
+) -> Client<FilesystemKeyStore<StdRng>> {
     let timeout_ms = 10_000;
-    let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
-    let mut client: Client<FilesystemKeyStore<StdRng>> = ClientBuilder::new()
+    let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
+    let sqlite_store = SqliteStore::new(client_db.into()).await.unwrap();
+
+    let remote_prover = Arc::new(RemoteTransactionProver::new(TX_PROVER_ENDPOINT.to_string()));
+    let mut client = ClientBuilder::new()
+        .store(Arc::new(sqlite_store))
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
         .in_debug_mode(true.into())
-        .sqlite_store(client_db)
+        .prover(remote_prover)
         .build()
         .await
         .expect("Failed to build client");
@@ -85,6 +83,5 @@ pub async fn init_client_and_prover(
     client.sync_state().await.expect("Failed to sync state");
     println!("State synced in {}s", time.elapsed().as_secs_f32());
 
-    let remote_prover = Arc::new(RemoteTransactionProver::new(TX_PROVER_ENDPOINT.to_string()));
-    (client, remote_prover)
+    client
 }

@@ -172,26 +172,3 @@ pub fn get_number_of_tx_for_address(conn: &Connection, account_id: &str) -> Resu
     };
     Ok(res)
 }
-
-pub fn get_accounts_to_be_tracked(conn: &Connection) -> Vec<AccountId> {
-    let mut accounts_stmt = conn
-        .prepare("SELECT * FROM ACCOUNTS")
-        .expect("Query failed");
-    let rows = accounts_stmt
-        .query_map([], |row| row.get::<usize, String>(1))
-        .expect("Query for account id failed");
-    let mut accounts_to_be_tracked: Vec<AccountId> = rows
-        .map(|wallet| {
-            let wallet = wallet.expect("Cannot get wallet from db");
-            match Address::from_bech32(&wallet) {
-                Ok((_, Address::AccountId(id))) => id.id(),
-                Ok((_, _)) => panic!("Address is not an AccountId"),
-                Err(_) => legacy_accountid_to_bech32(&wallet)
-                    .expect("Cannot convert legacy account id to bech32"),
-            }
-        })
-        .collect();
-
-    accounts_to_be_tracked.push(*FAUCET_ID);
-    accounts_to_be_tracked
-}

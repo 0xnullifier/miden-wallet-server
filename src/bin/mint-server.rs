@@ -3,11 +3,12 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use miden_client::account::{AccountId, Address};
+use miden_client::account::AccountId;
 use miden_client::asset::FungibleAsset;
 use miden_client::note::{NoteType, create_p2id_note};
+use miden_client::rpc::Endpoint;
 use miden_client::transaction::{OutputNote, TransactionRequestBuilder};
 use miden_client::{ClientError, Felt};
 use miden_faucet_server::utils::init_client_and_prover;
@@ -38,17 +39,14 @@ lazy_static! {
 
 async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
     println!("Starting mint requests");
-    let (mut client, prover) = init_client_and_prover(&CLIENT_DB).await;
+    let mut client = init_client_and_prover(&CLIENT_DB, Endpoint::devnet()).await;
     let mut p2id_notes = Vec::new();
-    println!("client initied");
+    println!("{:?}", requests);
     for (address, amount) in requests {
         let fungible_asset = FungibleAsset::new(*FAUCET_ID, *amount).unwrap();
-        let target = match Address::from_bech32(address) {
-            Ok((_, addr)) => match addr {
-                Address::AccountId(aid) => aid.id(),
-                _ => continue,
-            },
-            Err(_) => continue,
+        let target = match AccountId::from_hex(address) {
+            Ok(id) => id,
+            Err(err) => continue,
         };
         let p2id_note = create_p2id_note(
             *FAUCET_ID,
@@ -61,40 +59,16 @@ async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
         p2id_notes.push(p2id_note);
     }
-    println!("done creating notes");
     let output_notes: Vec<OutputNote> = p2id_notes.into_iter().map(OutputNote::Full).collect();
     let transaction_request = TransactionRequestBuilder::new()
         .own_output_notes(output_notes)
         .build()
         .unwrap();
-    let tx_execution_result = client
-        .new_transaction(*FAUCET_ID, transaction_request)
-        .await?;
-    println!("tx executed");
-    let digest = tx_execution_result.executed_transaction().id().to_hex();
-    println!("Submitting transaction with digest: {}", digest);
-    match client
-        .submit_transaction_with_prover(tx_execution_result.clone(), prover)
+    let digest = client
+        .submit_new_transaction(*FAUCET_ID, transaction_request)
         .await
-    {
-        Ok(_) => Ok(digest),
-        Err(e) => match e {
-            ClientError::TransactionProvingError(_) => {
-                let time = Instant::now();
-                println!("Got proving error, {:?}", e);
-                client
-                    .submit_transaction(tx_execution_result)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                println!("locally proven in {:?}", time.elapsed());
-                Ok(digest)
-            }
-            _ => {
-                println!("{:?}", e);
-                Err(e.to_string())
-            }
-        },
-    }
+        .unwrap();
+    Ok(digest.to_hex())
 }
 
 fn start_queue_processor() -> JoinHandle<()> {

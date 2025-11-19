@@ -1,6 +1,6 @@
 use miden_client::{
-    account::{AccountId, AccountIdAddress, Address, AddressInterface, NetworkId},
-    rpc::{Endpoint, NodeRpcClient, TonicRpcClient, domain::note::FetchedNote},
+    account::{AccountId, Address, AddressInterface, NetworkId},
+    rpc::{Endpoint, GrpcClient, NodeRpcClient, domain::note::FetchedNote},
 };
 use miden_faucet_server::{
     server::{APP_DB, FAUCET_ID},
@@ -8,7 +8,7 @@ use miden_faucet_server::{
     utils::legacy_accountid_to_bech32,
 };
 use miden_objects::block::ProvenBlock;
-use rusqlite::Connection;
+use rusqlite::{Connection, Map};
 use std::error::Error;
 use std::{collections::BTreeSet, time::Duration};
 
@@ -19,14 +19,9 @@ pub fn get_accounts_to_be_tracked(conn: &Connection) -> BTreeSet<AccountId> {
     let account_iter = stmt
         .query_map([], |row| {
             let wallet: String = row.get(1)?;
-            match Address::from_bech32(&wallet) {
-                Ok((_, Address::AccountId(id))) => Ok(id.id()),
-                Ok((_, _)) => panic!("Address is not an AccountId"),
-                Err(_) => {
-                    Ok(legacy_accountid_to_bech32(&wallet)
-                        .expect("Unable to parse legacy account id"))
-                }
-            }
+            Ok(AccountId::from_bech32(&wallet)
+                .map(|res| res.1)
+                .expect("Invalid account id"))
         })
         .expect("Unable to query accounts");
     let mut accounts = BTreeSet::new();
@@ -40,7 +35,7 @@ pub fn get_accounts_to_be_tracked(conn: &Connection) -> BTreeSet<AccountId> {
 /// returns the total txs, total notes created, total faucet requests
 pub async fn update_db_raw_block(
     conn: &Connection,
-    rpc: &TonicRpcClient,
+    rpc: &GrpcClient,
     accounts_to_be_tracked: &BTreeSet<AccountId>,
     block: &ProvenBlock,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -59,7 +54,7 @@ pub async fn update_db_raw_block(
         let tx_kind = if sender == *FAUCET_ID {
             "faucet_request"
         } else if !tx.output_notes().is_empty() {
-            let note_id = tx.output_notes()[0];
+            let note_id = tx.output_notes()[0].id();
             let note: Result<FetchedNote, _> = rpc.get_note_by_id(note_id).await;
             found_note = match note {
                 Ok(FetchedNote::Public(note, _)) => Some(NoteData {
@@ -89,13 +84,10 @@ pub async fn update_db_raw_block(
             return Err("Unknown tx kind".into());
         };
 
-        let sender_address =
-            Address::from(AccountIdAddress::new(sender, AddressInterface::Unspecified));
-
         let tx = Transaction {
             tx_id,
             tx_kind: tx_kind.to_string(),
-            sender: sender_address.to_bech32(NetworkId::Testnet),
+            sender: sender.to_bech32(NetworkId::Testnet),
             block_num: block.header().block_num().as_u32(),
             note_id: found_note,
             timestamp: block.header().timestamp(),
@@ -110,7 +102,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dotenvy::dotenv()?;
     println!("WORKER STARTED");
     let conn = Connection::open(APP_DB).expect("Cannot open db");
-    let rpc = TonicRpcClient::new(&Endpoint::testnet(), 100_000);
+    let rpc = GrpcClient::new(&Endpoint::testnet(), 100_000);
     let empty_btree_set = BTreeSet::new();
 
     // get the last sync block
