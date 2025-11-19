@@ -4,6 +4,7 @@ use bech32::{Bech32m, primitives::decode::CheckedHrpstring};
 use miden_client::{
     Client, RemoteTransactionProver,
     account::{AccountId, AddressType},
+    address::Address,
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
     rpc::{Endpoint, GrpcClient},
@@ -12,7 +13,7 @@ use miden_client_sqlite_store::SqliteStore;
 use rand::rngs::StdRng;
 
 const SERIALIZED_SIZE: usize = 15;
-const TX_PROVER_ENDPOINT: &str = "https://tx-prover.devnet.miden.io";
+const TX_PROVER_ENDPOINT: &str = "https://tx-prover.testnet.miden.io";
 
 /// Copy from earlier version of Miden Base
 pub fn legacy_accountid_to_bech32(bech32_string: &str) -> Result<AccountId, String> {
@@ -54,7 +55,7 @@ pub fn legacy_accountid_to_bech32(bech32_string: &str) -> Result<AccountId, Stri
 }
 
 pub fn validate_address(bech32_string: &str) -> bool {
-    match AccountId::from_bech32(bech32_string) {
+    match Address::decode(bech32_string) {
         Ok((_, _)) => true,
         Err(_) => false,
     }
@@ -68,13 +69,12 @@ pub async fn init_client_and_prover(
     let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
     let sqlite_store = SqliteStore::new(client_db.into()).await.unwrap();
 
-    let remote_prover = Arc::new(RemoteTransactionProver::new(TX_PROVER_ENDPOINT.to_string()));
+    // let remote_prover = Arc::new(RemoteTransactionProver::new(TX_PROVER_ENDPOINT.to_string()));
     let mut client = ClientBuilder::new()
         .store(Arc::new(sqlite_store))
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
         .in_debug_mode(true.into())
-        .prover(remote_prover)
         .build()
         .await
         .expect("Failed to build client");

@@ -2,7 +2,7 @@ use std::{error::Error, io::Read};
 
 use axum::{Json, Router, extract::Path, http::StatusCode, routing::get};
 use lazy_static::lazy_static;
-use miden_client::account::{AccountId, Address};
+use miden_client::{account::AccountId, address::Address};
 use rusqlite::Connection;
 use serde::Serialize;
 use tower::ServiceBuilder;
@@ -174,7 +174,7 @@ async fn get_transactions_for_account(
     Path((address, page_number)): Path<(String, u32)>,
 ) -> Result<Json<Vec<Transaction>>, StatusCode> {
     let conn = Connection::open(APP_DB).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    AccountId::from_bech32(&address).map_err(|_| StatusCode::BAD_REQUEST)?;
+    Address::decode(&address).map_err(|_| StatusCode::BAD_REQUEST)?;
     let res = get_transactions_by_account(&conn, &address, page_number).map_err(|err| {
         println!("{}", err);
         StatusCode::INTERNAL_SERVER_ERROR
@@ -187,7 +187,7 @@ async fn get_transactions_for_account(
 
 async fn get_tx_count_for_account(Path(address): Path<String>) -> Result<Json<u32>, StatusCode> {
     let conn = Connection::open(APP_DB).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    AccountId::from_bech32(&address).map_err(|_| StatusCode::BAD_REQUEST)?;
+    Address::decode(&address).map_err(|_| StatusCode::BAD_REQUEST)?;
     let res = get_number_of_tx_for_address(&conn, &address).map_err(|err| {
         println!("{}", err);
         StatusCode::INTERNAL_SERVER_ERROR

@@ -1,7 +1,4 @@
-use miden_client::account::{AccountId, Address};
 use rusqlite::{Connection, Row};
-
-use crate::{server::FAUCET_ID, utils::legacy_accountid_to_bech32};
 
 pub const SYNC_BLOCK_FILE: &str = "./last_sync_block.txt";
 /// Creates a worker that polls raw blocks from the rpc and see if there are changes

@@ -1,14 +1,14 @@
 use miden_client::{
-    account::{AccountId, Address, AddressInterface, NetworkId},
+    account::{AccountId, NetworkId},
+    address::{Address, AddressId},
     rpc::{Endpoint, GrpcClient, NodeRpcClient, domain::note::FetchedNote},
 };
 use miden_faucet_server::{
     server::{APP_DB, FAUCET_ID},
     tx_worker::{NoteData, SYNC_BLOCK_FILE, Transaction},
-    utils::legacy_accountid_to_bech32,
 };
 use miden_objects::block::ProvenBlock;
-use rusqlite::{Connection, Map};
+use rusqlite::Connection;
 use std::error::Error;
 use std::{collections::BTreeSet, time::Duration};
 
@@ -19,8 +19,11 @@ pub fn get_accounts_to_be_tracked(conn: &Connection) -> BTreeSet<AccountId> {
     let account_iter = stmt
         .query_map([], |row| {
             let wallet: String = row.get(1)?;
-            Ok(AccountId::from_bech32(&wallet)
-                .map(|res| res.1)
+            Ok(Address::decode(&wallet)
+                .map(|res| match res.1.id() {
+                    AddressId::AccountId(id) => id,
+                    _ => todo!("Implment them"),
+                })
                 .expect("Invalid account id"))
         })
         .expect("Unable to query accounts");

@@ -4,7 +4,7 @@ SIGNALING_SERVER_DIR=signaling-server
 PM=/root/.local/share/pnpm/pnpm
 BIN=target/release/miden-faucet-server
 BIN_MINT_SERVER=target/release/mint-server
-BIN_TX_WORKER=target/release/tx-worker
+BIN_TX_WORKER=target/release/tx_worker
 
 
 install_deps_ec2:

@@ -5,12 +5,12 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use miden_client::Felt;
 use miden_client::account::AccountId;
 use miden_client::asset::FungibleAsset;
 use miden_client::note::{NoteType, create_p2id_note};
 use miden_client::rpc::Endpoint;
 use miden_client::transaction::{OutputNote, TransactionRequestBuilder};
-use miden_client::{ClientError, Felt};
 use miden_faucet_server::utils::init_client_and_prover;
 use threadpool::ThreadPool;
 use tokio::runtime::Builder;
@@ -39,14 +39,14 @@ lazy_static! {
 
 async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
     println!("Starting mint requests");
-    let mut client = init_client_and_prover(&CLIENT_DB, Endpoint::devnet()).await;
+    let mut client = init_client_and_prover(&CLIENT_DB, Endpoint::testnet()).await;
     let mut p2id_notes = Vec::new();
     println!("{:?}", requests);
     for (address, amount) in requests {
         let fungible_asset = FungibleAsset::new(*FAUCET_ID, *amount).unwrap();
         let target = match AccountId::from_hex(address) {
             Ok(id) => id,
-            Err(err) => continue,
+            Err(_) => continue,
         };
         let p2id_note = create_p2id_note(
             *FAUCET_ID,
