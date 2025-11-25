@@ -1705,7 +1705,6 @@ name = "miden-faucet-server"
 version = "0.1.0"
 dependencies = [
  "axum",
- "bech32",
  "dotenvy",
  "lazy_static",
  "miden-client",

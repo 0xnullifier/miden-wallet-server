@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use miden_client::Felt;
 use miden_client::account::AccountId;
+use miden_client::address::{Address, AddressId};
 use miden_client::asset::FungibleAsset;
 use miden_client::note::{NoteType, create_p2id_note};
 use miden_client::rpc::Endpoint;
@@ -38,28 +39,34 @@ lazy_static! {
 }
 
 async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
-    println!("Starting mint requests");
     let mut client = init_client_and_prover(&CLIENT_DB, Endpoint::testnet()).await;
     let mut p2id_notes = Vec::new();
     println!("{:?}", requests);
     for (address, amount) in requests {
         let fungible_asset = FungibleAsset::new(*FAUCET_ID, *amount).unwrap();
-        let target = match AccountId::from_hex(address) {
-            Ok(id) => id,
+        let target = match Address::decode(&address) {
+            Ok((_, addr)) => match addr.id() {
+                AddressId::AccountId(id) => id,
+                _ => todo!("Cover More the code has updated"),
+            },
             Err(_) => continue,
         };
         let p2id_note = create_p2id_note(
             *FAUCET_ID,
             target,
             vec![fungible_asset.into()],
-            NoteType::Public,
+            NoteType::Private,
             Felt::new(0),
             client.rng(),
         )
         .map_err(|e| e.to_string())?;
         p2id_notes.push(p2id_note);
     }
-    let output_notes: Vec<OutputNote> = p2id_notes.into_iter().map(OutputNote::Full).collect();
+    let output_notes: Vec<OutputNote> = p2id_notes
+        .clone()
+        .into_iter()
+        .map(OutputNote::Full)
+        .collect();
     let transaction_request = TransactionRequestBuilder::new()
         .own_output_notes(output_notes)
         .build()
@@ -68,6 +75,12 @@ async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
         .submit_new_transaction(*FAUCET_ID, transaction_request)
         .await
         .unwrap();
+    for (i, note) in p2id_notes.into_iter().enumerate() {
+        client
+            .send_private_note(note, &Address::decode(&requests[i].0).unwrap().1)
+            .await
+            .unwrap();
+    }
     Ok(digest.to_hex())
 }
 
@@ -142,10 +155,6 @@ fn handle_client(mut stream: TcpStream) {
                             return;
                         }
                     };
-                    println!(
-                        "Queuing mint request: {} tokens to address {}",
-                        amount, address
-                    );
 
                     let (tx, rx) = oneshot::channel();
 
