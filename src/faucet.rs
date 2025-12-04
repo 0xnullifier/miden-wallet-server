@@ -13,14 +13,14 @@ use miden_client::{
 };
 use rand_core::TryRngCore;
 
-use crate::utils::init_client_and_prover;
+use crate::utils::init_client;
 
 lazy_static! {
     pub static ref CLIENT_DB: String = std::env::var("CLIENT_DB").unwrap();
 }
 
 pub async fn create_new_faucet(endpoint: Endpoint) -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = init_client_and_prover(&CLIENT_DB, endpoint).await;
+    let mut client = init_client(&CLIENT_DB, endpoint).await;
     let keystore = FilesystemKeyStore::new("./keystore".into())?;
     let mut init_seed = [0u8; 32];
     client.rng().try_fill_bytes(&mut init_seed)?;

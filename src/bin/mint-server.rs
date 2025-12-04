@@ -12,7 +12,7 @@ use miden_client::asset::FungibleAsset;
 use miden_client::note::{NoteType, create_p2id_note};
 use miden_client::rpc::Endpoint;
 use miden_client::transaction::{OutputNote, TransactionRequestBuilder};
-use miden_faucet_server::utils::init_client_and_prover;
+use miden_faucet_server::utils::init_client_with_custom_sync_state;
 use threadpool::ThreadPool;
 use tokio::runtime::Builder;
 use tokio::sync::oneshot;
@@ -39,12 +39,13 @@ lazy_static! {
 }
 
 async fn bulk_mint(requests: &[(String, u64)]) -> Result<String, String> {
-    let mut client = init_client_and_prover(&CLIENT_DB, Endpoint::testnet()).await;
+    let mut client =
+        init_client_with_custom_sync_state(&CLIENT_DB, Endpoint::testnet(), *FAUCET_ID).await;
     let mut p2id_notes = Vec::new();
     println!("{:?}", requests);
     for (address, amount) in requests {
         let fungible_asset = FungibleAsset::new(*FAUCET_ID, *amount).unwrap();
-        let target = match Address::decode(&address) {
+        let target = match Address::decode(address) {
             Ok((_, addr)) => match addr.id() {
                 AddressId::AccountId(id) => id,
                 _ => todo!("Cover More the code has updated"),
